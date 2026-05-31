@@ -1,0 +1,13 @@
+.git
+.env
+.env.*
+!.env.example
+data/
+store/
+*.db
+*.log
+**/__pycache__/
+**/*.pyc
+.venv/
+docs/
+*.md

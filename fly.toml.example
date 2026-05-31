@@ -1,0 +1,29 @@
+# Copy to fly.toml and set `app`. Secrets are NOT stored here — set them with
+# `fly secrets set` (see docs/deploy-fly.md): MCP_AUTH_TOKEN, AUTHKIT_DOMAIN,
+# MCP_ALLOWED_EMAILS, PAIR_PHONE, MCP_RESOURCE_URL.
+app = "your-whatsapp-mcp"          # must be globally unique
+primary_region = "iad"             # pick the Fly region closest to you
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  WACLI_STORE_DIR = "/data"
+  MCP_TRANSPORT = "http"
+  MCP_HOST = "0.0.0.0"
+  MCP_PORT = "8081"
+
+[[mounts]]
+  source = "wa_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8081
+  force_https = true
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

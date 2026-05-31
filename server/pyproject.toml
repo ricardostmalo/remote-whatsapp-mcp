@@ -1,0 +1,14 @@
+[project]
+name = "remote-whatsapp-mcp-server"
+version = "0.1.0"
+description = "Remote WhatsApp MCP server (wacli engine + WorkOS OAuth)"
+requires-python = ">=3.11"
+license = "MIT"
+dependencies = [
+    "mcp[cli]>=1.27.1",
+    "pyjwt[crypto]>=2.10.1",
+    "uvicorn>=0.34.0",
+]
+
+[tool.setuptools]
+py-modules = ["main", "wacli"]

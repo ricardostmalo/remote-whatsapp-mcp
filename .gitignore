@@ -1,0 +1,25 @@
+# Secrets & local state — never commit
+.env
+.env.*
+!.env.example
+
+# wacli store / WhatsApp session & message DB
+data/
+store/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+.bridge-token
+qr*.png
+qr*.txt
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Build / tooling
+dist/
+*.log
+.fly/
