@@ -416,3 +416,54 @@ def download_media(chat_jid: str, msg_id: str, output: str | None = None) -> dic
     if output:
         args += ["--output", output]
     return _run(args)
+
+
+def react(recipient: str, msg_id: str, emoji: str = "👍", sender: str | None = None) -> dict[str, Any]:
+    args = ["send", "react", "--to", recipient, "--id", msg_id, "--reaction", emoji]
+    if sender:
+        args += ["--sender", sender]
+    return _run(args)
+
+
+def _search_msg(m: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "msg_id": m.get("MsgID"),
+        "chat_jid": m.get("ChatJID"),
+        "chat_name": m.get("ChatName"),
+        "sender_jid": m.get("SenderJID"),
+        "sender_name": m.get("SenderName"),
+        "from_me": bool(m.get("FromMe")),
+        "timestamp": m.get("Timestamp"),
+        "text": m.get("DisplayText") or m.get("Text"),
+        "media_type": m.get("MediaType") or None,
+        "snippet": m.get("Snippet"),
+    }
+
+
+def search_messages(
+    query: str,
+    chat_jid: str | None = None,
+    sender_jid: str | None = None,
+    limit: int = 50,
+    after: str | None = None,
+    before: str | None = None,
+    has_media: bool = False,
+    msg_type: str | None = None,
+) -> list[dict[str, Any]]:
+    """Full-text (FTS5) message search via the wacli engine."""
+    args = ["messages", "search", query, "--limit", str(min(int(limit), 200))]
+    if chat_jid:
+        args += ["--chat", chat_jid]
+    if sender_jid:
+        args += ["--from", sender_jid]
+    if after:
+        args += ["--after", after]
+    if before:
+        args += ["--before", before]
+    if has_media:
+        args += ["--has-media"]
+    if msg_type:
+        args += ["--type", msg_type]
+    res = _run(args)
+    msgs = ((res.get("data") or {}).get("messages")) or []
+    return [_search_msg(m) for m in msgs]

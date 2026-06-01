@@ -220,6 +220,39 @@ def get_group_info(group_jid: str) -> dict[str, Any]:
     return wacli.get_group_info(group_jid)
 
 
+@mcp.tool()
+def search_messages(
+    query: str,
+    chat_jid: str | None = None,
+    sender_phone_number: str | None = None,
+    limit: int = 50,
+    after: str | None = None,
+    before: str | None = None,
+    has_media: bool = False,
+    msg_type: str | None = None,
+) -> list[dict[str, Any]]:
+    """Full-text search across WhatsApp messages (FTS5). msg_type: text|image|video|audio|document."""
+    sender_jid = None
+    if sender_phone_number:
+        digits = "".join(c for c in sender_phone_number if c.isdigit())
+        sender_jid = f"{digits}@s.whatsapp.net" if digits else sender_phone_number
+    return wacli.search_messages(
+        query, chat_jid=chat_jid, sender_jid=sender_jid, limit=limit,
+        after=after, before=before, has_media=has_media, msg_type=msg_type,
+    )
+
+
+@mcp.tool()
+def react_to_message(
+    recipient: str, message_id: str, emoji: str = "👍", sender_jid: str | None = None
+) -> dict[str, Any]:
+    """React to a WhatsApp message with an emoji (empty string removes the reaction).
+
+    recipient = chat phone/JID; sender_jid is required for group messages.
+    """
+    return wacli.react(recipient, message_id, emoji, sender=sender_jid)
+
+
 # --------------------------------------------------------------------------- #
 # Transport
 # --------------------------------------------------------------------------- #
