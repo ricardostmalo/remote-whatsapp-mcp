@@ -418,6 +418,51 @@ def download_media(chat_jid: str, msg_id: str, output: str | None = None) -> dic
     return _run(args)
 
 
+def transcribe_audio(chat_jid: str, msg_id: str) -> dict[str, Any]:
+    """Download a voice note / audio message via wacli and transcribe it with the
+    OpenAI Whisper API. Requires OPENAI_API_KEY. Returns {success, text}."""
+    import glob
+    import tempfile
+
+    key = os.getenv("OPENAI_API_KEY", "").strip()
+    if not key:
+        return {"success": False, "message": "Transcription not configured (set OPENAI_API_KEY)."}
+
+    out_dir = tempfile.mkdtemp(prefix="wa_tx_")
+    dl = _run(["media", "download", "--chat", chat_jid, "--id", msg_id, "--output", out_dir])
+    if not dl.get("success"):
+        return {"success": False, "message": f"download failed: {dl.get('message', 'unknown error')}"}
+    files = [f for f in glob.glob(os.path.join(out_dir, "*")) if os.path.isfile(f)]
+    if not files:
+        return {"success": False, "message": "no media file found (message may have no downloadable audio)"}
+    path = files[0]
+
+    import httpx
+
+    model = os.getenv("OPENAI_TRANSCRIBE_MODEL", "whisper-1")
+    try:
+        with open(path, "rb") as f:
+            resp = httpx.post(
+                "https://api.openai.com/v1/audio/transcriptions",
+                headers={"Authorization": f"Bearer {key}"},
+                data={"model": model},
+                files={"file": (os.path.basename(path), f, "application/octet-stream")},
+                timeout=180,
+            )
+    except Exception as e:  # noqa: BLE001
+        return {"success": False, "message": f"transcription request failed: {e}"}
+    finally:
+        try:
+            os.remove(path)
+            os.rmdir(out_dir)
+        except OSError:
+            pass
+
+    if resp.status_code != 200:
+        return {"success": False, "message": f"OpenAI error {resp.status_code}: {resp.text[:200]}"}
+    return {"success": True, "text": resp.json().get("text", "")}
+
+
 def react(recipient: str, msg_id: str, emoji: str = "👍", sender: str | None = None) -> dict[str, Any]:
     args = ["send", "react", "--to", recipient, "--id", msg_id, "--reaction", emoji]
     if sender:

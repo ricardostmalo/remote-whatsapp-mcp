@@ -253,6 +253,15 @@ def react_to_message(
     return wacli.react(recipient, message_id, emoji, sender=sender_jid)
 
 
+@mcp.tool()
+def transcribe_audio(message_id: str, chat_jid: str) -> dict[str, Any]:
+    """Transcribe a WhatsApp voice note / audio message to text (OpenAI Whisper).
+
+    Downloads the audio via wacli, then transcribes it. Requires OPENAI_API_KEY.
+    """
+    return wacli.transcribe_audio(chat_jid, message_id)
+
+
 # --------------------------------------------------------------------------- #
 # Transport
 # --------------------------------------------------------------------------- #
