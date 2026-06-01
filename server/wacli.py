@@ -304,8 +304,102 @@ def _run(args: list[str]) -> dict[str, Any]:
     return {"success": True, **(data if isinstance(data, dict) else {"result": data})}
 
 
-def send_text(recipient: str, message: str) -> dict[str, Any]:
-    return _run(["send", "text", "--to", recipient, "--message", message])
+def send_text(
+    recipient: str,
+    message: str,
+    reply_to: str | None = None,
+    mentions: list[str] | None = None,
+) -> dict[str, Any]:
+    args = ["send", "text", "--to", recipient, "--message", message]
+    if reply_to:
+        args += ["--reply-to", reply_to]
+    for m in mentions or []:
+        args += ["--mention", m]
+    return _run(args)
+
+
+def mark_chat_read(chat_jid: str) -> dict[str, Any]:
+    return _run(["chats", "mark-read", "--chat", chat_jid])
+
+
+def request_history(chat_jid: str, count: int = 100) -> dict[str, Any]:
+    return _run(["history", "backfill", "--chat", chat_jid, "--count", str(int(count))])
+
+
+def list_recent_calls(chat_jid: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
+    where, params = [], []
+    if chat_jid:
+        where.append("chat_jid = ?")
+        params.append(chat_jid)
+    clause = f"WHERE {' AND '.join(where)}" if where else ""
+    sql = (
+        "SELECT chat_jid, chat_name, sender_jid, sender_name, event_type, direction, "
+        "media, outcome, call_type, duration_secs, ts "
+        f"FROM call_events {clause} ORDER BY ts DESC LIMIT ?"
+    )
+    params.append(min(int(limit), 200))
+    with _connect() as conn:
+        out = []
+        for r in conn.execute(sql, params):
+            d = dict(r)
+            out.append({
+                "chat_jid": d["chat_jid"],
+                "chat_name": d.get("chat_name"),
+                "from": d.get("sender_name") or d.get("sender_jid"),
+                "event": d.get("event_type"),
+                "direction": d.get("direction"),
+                "media": d.get("media"),
+                "outcome": d.get("outcome"),
+                "call_type": d.get("call_type"),
+                "duration_secs": d.get("duration_secs") or 0,
+                "timestamp": _iso(d.get("ts")),
+            })
+        return out
+
+
+def list_starred_messages(chat_jid: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
+    where, params = [], []
+    if chat_jid:
+        where.append("s.chat_jid = ?")
+        params.append(chat_jid)
+    clause = f"WHERE {' AND '.join(where)}" if where else ""
+    sql = (
+        "SELECT m.msg_id, m.chat_jid, m.chat_name, m.sender_jid, m.sender_name, m.from_me, "
+        "m.ts, m.text, m.display_text, m.media_type, m.media_caption, m.filename, "
+        "m.quoted_msg_id, m.is_forwarded, m.reaction_emoji, m.edited "
+        "FROM starred s JOIN messages m ON m.chat_jid = s.chat_jid AND m.msg_id = s.msg_id "
+        f"{clause} ORDER BY s.starred_at DESC LIMIT ?"
+    )
+    params.append(min(int(limit), 200))
+    with _connect() as conn:
+        return [_msg_row(r) for r in conn.execute(sql, params)]
+
+
+def get_group_info(group_jid: str) -> dict[str, Any]:
+    with _connect() as conn:
+        g = conn.execute(
+            "SELECT jid, name, owner_jid, created_ts, is_parent, left_at "
+            "FROM groups WHERE jid = ?",
+            (group_jid,),
+        ).fetchone()
+        if not g:
+            return {}
+        parts = conn.execute(
+            "SELECT user_jid, role FROM group_participants WHERE group_jid = ? "
+            "ORDER BY role DESC, user_jid",
+            (group_jid,),
+        ).fetchall()
+        d = dict(g)
+        return {
+            "jid": d["jid"],
+            "name": d.get("name"),
+            "owner_jid": d.get("owner_jid"),
+            "created": _iso(d.get("created_ts")),
+            "is_community": bool(d.get("is_parent")),
+            "left": bool(d.get("left_at")),
+            "participant_count": len(parts),
+            "participants": [{"jid": p["user_jid"], "role": p["role"] or "member"} for p in parts],
+        }
 
 
 def send_file(recipient: str, media_path: str, caption: str | None = None, ptt: bool = False) -> dict[str, Any]:

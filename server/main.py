@@ -157,11 +157,19 @@ def get_message_context(message_id: str, before: int = 5, after: int = 5) -> dic
 
 
 @mcp.tool()
-def send_message(recipient: str, message: str) -> dict[str, Any]:
-    """Send a WhatsApp text message. Recipient = phone number (no +/symbols) or JID."""
+def send_message(
+    recipient: str,
+    message: str,
+    reply_to: str | None = None,
+    mentions: list[str] | None = None,
+) -> dict[str, Any]:
+    """Send a WhatsApp text message. Recipient = phone number (no +/symbols) or JID.
+
+    reply_to: message ID to quote/reply to. mentions: phone numbers or JIDs to @mention.
+    """
     if not recipient:
         return {"success": False, "message": "Recipient must be provided"}
-    return wacli.send_text(recipient, message)
+    return wacli.send_text(recipient, message, reply_to=reply_to, mentions=mentions)
 
 
 @mcp.tool()
@@ -180,6 +188,36 @@ def send_audio_message(recipient: str, media_path: str) -> dict[str, Any]:
 def download_media(message_id: str, chat_jid: str) -> dict[str, Any]:
     """Download media from a message and return the local file path."""
     return wacli.download_media(chat_jid, message_id)
+
+
+@mcp.tool()
+def mark_chat_read(chat_jid: str) -> dict[str, Any]:
+    """Mark a WhatsApp chat as read."""
+    return wacli.mark_chat_read(chat_jid)
+
+
+@mcp.tool()
+def request_history(chat_jid: str, count: int = 100) -> dict[str, Any]:
+    """Request older messages for a chat from your primary device (on-demand history backfill)."""
+    return wacli.request_history(chat_jid, count)
+
+
+@mcp.tool()
+def list_recent_calls(chat_jid: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
+    """List recent WhatsApp call events, optionally filtered to one chat JID."""
+    return wacli.list_recent_calls(chat_jid, limit)
+
+
+@mcp.tool()
+def list_starred_messages(chat_jid: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
+    """List starred WhatsApp messages, optionally filtered to one chat JID."""
+    return wacli.list_starred_messages(chat_jid, limit)
+
+
+@mcp.tool()
+def get_group_info(group_jid: str) -> dict[str, Any]:
+    """Get a WhatsApp group's metadata and participant list (read-only)."""
+    return wacli.get_group_info(group_jid)
 
 
 # --------------------------------------------------------------------------- #
