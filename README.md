@@ -40,7 +40,7 @@ AuthKit OAuth layer, deployed on Fly.io.
   session at a time — `wacli sync --follow` holds it continuously (a store lock).
   So the MCP server never opens a second writing `wacli`: it reads the DB file,
   lets the daemon handle sends over its socket, and downloads media read-only.
-  See [`AGENTS.md`](AGENTS.md) before changing how tools talk to wacli.
+  See [`CLAUDE.md`](CLAUDE.md) before changing how tools talk to wacli.
 - **Auth:** the `/mcp` endpoint accepts a WorkOS AuthKit OAuth token (what
   claude.ai and ChatGPT use) **or** a static bearer token (handy for Claude Code).
   Access is restricted to an email allowlist.
