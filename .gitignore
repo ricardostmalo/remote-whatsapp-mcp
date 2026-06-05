@@ -23,3 +23,7 @@ __pycache__/
 dist/
 *.log
 .fly/
+fly.toml          # local deploy config; repo ships fly.toml.example
+
+# macOS
+.DS_Store

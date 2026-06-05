@@ -32,9 +32,15 @@ AuthKit OAuth layer, deployed on Fly.io.
 
 - **Engine:** `wacli` keeps the WhatsApp connection alive and mirrors messages to
   SQLite on a persistent volume.
-- **MCP layer:** `server/` exposes tools (search/list messages & chats, contacts,
-  send text/file/voice, download media). Reads query `wacli.db` directly; sends
-  shell out to `wacli send`.
+- **MCP layer:** `server/` exposes the tools below. Reads query `wacli.db`
+  directly (read-only, no lock); sends/reactions shell out to `wacli`, which
+  transparently delegates them to the running daemon; media download/transcription
+  use `wacli --read-only` to fetch straight from WhatsApp's CDN.
+- **Single-writer session (important):** only one process may hold the WhatsApp
+  session at a time — `wacli sync --follow` holds it continuously (a store lock).
+  So the MCP server never opens a second writing `wacli`: it reads the DB file,
+  lets the daemon handle sends over its socket, and downloads media read-only.
+  See [`AGENTS.md`](AGENTS.md) before changing how tools talk to wacli.
 - **Auth:** the `/mcp` endpoint accepts a WorkOS AuthKit OAuth token (what
   claude.ai and ChatGPT use) **or** a static bearer token (handy for Claude Code).
   Access is restricted to an email allowlist.
@@ -52,10 +58,14 @@ Copy `.env.example` → `.env` and fill it in; every secret is set via
 
 ## MCP tools
 
-`search_contacts`, `get_contact`, `list_messages`, `list_chats`, `get_chat`,
-`get_direct_chat_by_contact`, `get_contact_chats`, `get_last_interaction`,
-`get_message_context`, `send_message`, `send_file`, `send_audio_message`,
-`download_media`.
+**Read:** `search_contacts`, `get_contact`, `list_messages`, `search_messages`,
+`list_chats`, `get_chat`, `get_direct_chat_by_contact`, `get_contact_chats`,
+`get_last_interaction`, `get_message_context`, `list_recent_calls`,
+`list_starred_messages`, `get_group_info`.
+
+**Act:** `send_message`, `send_file`, `send_audio_message`, `react_to_message`,
+`mark_chat_read`, `request_history`, `download_media`, `transcribe_audio`
+(voice notes → text via OpenAI Whisper; set `OPENAI_API_KEY`).
 
 ## Credits
 

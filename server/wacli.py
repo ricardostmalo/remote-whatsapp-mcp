@@ -412,10 +412,13 @@ def send_file(recipient: str, media_path: str, caption: str | None = None, ptt: 
 
 
 def download_media(chat_jid: str, msg_id: str, output: str | None = None) -> dict[str, Any]:
-    args = ["media", "download", "--chat", chat_jid, "--id", msg_id]
-    if output:
-        args += ["--output", output]
-    return _run(args)
+    # Read-only download: wacli fetches the encrypted blob straight from WhatsApp's
+    # CDN using the DirectPath/MediaKey already in the synced DB, via
+    # newApp(..., needLock=False, ...). It never contends for the store lock held by
+    # the always-on `sync --follow` daemon. Read-only mode requires an --output dir.
+    out = output or os.path.join(STORE_DIR, "downloads")
+    os.makedirs(out, exist_ok=True)
+    return _run(["media", "download", "--chat", chat_jid, "--id", msg_id, "--output", out, "--read-only"])
 
 
 def transcribe_audio(chat_jid: str, msg_id: str) -> dict[str, Any]:
@@ -429,7 +432,9 @@ def transcribe_audio(chat_jid: str, msg_id: str) -> dict[str, Any]:
         return {"success": False, "message": "Transcription not configured (set OPENAI_API_KEY)."}
 
     out_dir = tempfile.mkdtemp(prefix="wa_tx_")
-    dl = _run(["media", "download", "--chat", chat_jid, "--id", msg_id, "--output", out_dir])
+    # --read-only downloads straight from WhatsApp's CDN (no store lock), so this
+    # works while the sync daemon holds the session. See download_media() above.
+    dl = _run(["media", "download", "--chat", chat_jid, "--id", msg_id, "--output", out_dir, "--read-only"])
     if not dl.get("success"):
         return {"success": False, "message": f"download failed: {dl.get('message', 'unknown error')}"}
     files = [f for f in glob.glob(os.path.join(out_dir, "*")) if os.path.isfile(f)]
