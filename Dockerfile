@@ -17,7 +17,7 @@ RUN apt-get update \
 COPY --from=wacli-build /go/bin/wacli /usr/local/bin/wacli
 
 # Python MCP server deps
-RUN pip install --no-cache-dir "mcp[cli]>=1.27.1" "pyjwt[crypto]>=2.10.1" "uvicorn>=0.34.0"
+RUN pip install --no-cache-dir "mcp[cli]>=1.27.1" "pyjwt[crypto]>=2.10.1" "uvicorn>=0.34.0" "httpx>=0.27.0"
 
 WORKDIR /app/server
 COPY server/ ./
