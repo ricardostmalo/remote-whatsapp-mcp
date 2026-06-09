@@ -191,18 +191,6 @@ def download_media(message_id: str, chat_jid: str) -> dict[str, Any]:
 
 
 @mcp.tool()
-def mark_chat_read(chat_jid: str) -> dict[str, Any]:
-    """Mark a WhatsApp chat as read."""
-    return wacli.mark_chat_read(chat_jid)
-
-
-@mcp.tool()
-def request_history(chat_jid: str, count: int = 100) -> dict[str, Any]:
-    """Request older messages for a chat from your primary device (on-demand history backfill)."""
-    return wacli.request_history(chat_jid, count)
-
-
-@mcp.tool()
 def list_recent_calls(chat_jid: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
     """List recent WhatsApp call events, optionally filtered to one chat JID."""
     return wacli.list_recent_calls(chat_jid, limit)

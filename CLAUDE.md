@@ -4,6 +4,13 @@ Guidance for AI agents (and humans) working on this repo. Read this before
 touching how the MCP tools talk to `wacli`. (`AGENTS.md` is a symlink to this
 file, so a tool looking for either name gets the same content.)
 
+## Communication style (Ricardo)
+
+Be **very concise**. Lead with the answer; cut preamble, recap, and
+self-narration. Short list over prose. No play-by-play. Surface only what's
+decision-relevant; offer detail on request instead of dumping it. If a long
+answer seems needed, give the 3-line version first and ask before expanding.
+
 ## What this is
 
 A remote, always-on, OAuth-secured MCP server that fronts
@@ -12,32 +19,45 @@ and act on a personal WhatsApp account from anywhere. Python MCP server in
 `server/`, `wacli` (Go) engine built from source in the `Dockerfile`, deployed on
 Fly.io with a persistent volume at `/data`.
 
-## The one rule that matters: single-writer session
+## The one rule that matters: single-writer store lock
 
-WhatsApp allows a linked device only one live session, and `wacli` enforces this
-with a **store lock**. The always-on `wacli sync --follow` daemon holds that lock
-**continuously**. Therefore:
+A wacli store can be driven by only **one wacli process at a time** — wacli guards
+it with a local `flock` lockfile (`<store>/LOCK`, holding the owner pid). The
+always-on `wacli sync --follow` daemon holds that lock **continuously**. (It's a
+local file lock, **not** a WhatsApp limit — WhatsApp itself is multi-device; the
+lock just stops two wacli processes from racing the same store.) Therefore:
 
-- **Never spawn a second `wacli` process that needs the lock.** It will fail with
-  `store is locked (... pid=...)`. A `wacli` that crashes mid-run can also orphan
-  the lock and wedge the whole machine until restart. This is the single most
-  important constraint in the project.
-- The three tool families each avoid the lock a different way:
-  - **Reads** (`list_*`, `search_*`, `get_*`) → open `wacli.db` as **read-only
-    SQLite** (`?mode=ro`). No `wacli` process, no lock. See `_db_path()` /
-    read helpers in `server/wacli.py`.
-  - **Sends / reactions** (`send_*`, `react_to_message`, `mark_chat_read`,
-    `request_history`) → shell out to `wacli`, which **delegates to the running
-    daemon over a unix socket** (`<store>/.send.sock`) when the store is locked.
-    This is built into wacli; just call the command normally.
+- **Never spawn a second `wacli` process that needs the lock.** It fails with
+  `store is locked (... pid=...)`. This is the single most important constraint.
+- What works, and how each avoids the lock:
+  - **Reads** (`list_*`, `search_*`, `get_*`) → call wacli's own read commands
+    (`messages list/search/starred`, `chats list/show`, `contacts search/show`,
+    `calls list`). They're `--json` and lock-free (`needLock=false`), so they run
+    fine alongside the daemon, and we stay on wacli's stable CLI contract instead
+    of its internal DB schema. Three reads have no clean command and use read-only
+    SQLite instead: `get_contact_chats`, `get_group_info`, `get_message_context`.
+    See `server/wacli.py`.
+  - **Sends / reactions** (`send_*`, `react_to_message`) → shell out to `wacli`,
+    which **delegates to the running daemon over a unix socket**
+    (`<store>/.send.sock`) when the store is locked. Built into wacli for the
+    send-type commands; just call the command normally.
   - **Media download / transcription** (`download_media`, `transcribe_audio`) →
     call `wacli media download --read-only --output <dir>`. Read-only mode runs
     `newApp(..., needLock=false, ...)` and fetches the encrypted blob **straight
     from WhatsApp's CDN** using the `DirectPath`/`MediaKey` already mirrored in
     the DB, then decrypts locally. No live connection, no lock.
 
-If you add a tool, classify it into one of those three and follow the matching
-pattern. Do not invent a fourth way that opens a writing `wacli`.
+- **Removed — `mark_chat_read` (`chats mark-read`) and `request_history`
+  (`history backfill`).** Both need the live connection (`newApp(..., needLock=true,
+  ...)`) and wacli does **not** delegate them over the socket (no case in
+  `executeDelegatedSend`), so they fail with `store is locked` under the daemon.
+  They were exposed as tools and removed. Don't re-add them without first patching
+  wacli to delegate them over `.send.sock` (the `react` pattern), via upstream PR
+  or a fork the Dockerfile builds from.
+
+If you add a tool, classify it into reads / delegated-sends / read-only-download.
+Anything that needs the live connection but isn't a delegated send will collide
+with the daemon — see the unsupported pair above before exposing it as a tool.
 
 ### Known edge
 

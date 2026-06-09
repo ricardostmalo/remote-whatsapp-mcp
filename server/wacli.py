@@ -404,14 +404,6 @@ def send_text(
     return _run(args)
 
 
-def mark_chat_read(chat_jid: str) -> dict[str, Any]:
-    return _run(["chats", "mark-read", "--chat", chat_jid])
-
-
-def request_history(chat_jid: str, count: int = 100) -> dict[str, Any]:
-    return _run(["history", "backfill", "--chat", chat_jid, "--count", str(int(count))])
-
-
 def send_file(recipient: str, media_path: str, caption: str | None = None, ptt: bool = False) -> dict[str, Any]:
     args = ["send", "file", "--to", recipient, "--file", media_path]
     if caption:
