@@ -173,15 +173,58 @@ def send_message(
 
 
 @mcp.tool()
-def send_file(recipient: str, media_path: str, caption: str | None = None) -> dict[str, Any]:
-    """Send a file (image/video/audio/document) to a recipient."""
-    return wacli.send_file(recipient, media_path, caption=caption)
+def send_file(
+    recipient: str,
+    media_path: str | None = None,
+    caption: str | None = None,
+    content_base64: str | None = None,
+    filename: str | None = None,
+    media_url: str | None = None,
+) -> dict[str, Any]:
+    """Send a file (image/video/audio/document) to a recipient.
+
+    The server runs remotely and cannot see your local disk. Pick one source:
+    - `media_url` (preferred): an http(s) link the server can fetch — a signed URL,
+      a Drive/Dropbox share, S3, etc. The server downloads and sends it; nothing is
+      streamed through this tool call. Best for claude.ai / ChatGPT.
+    - `content_base64` (+ `filename`, e.g. "report.xlsx"): the file's raw bytes,
+      base64-encoded. Use only when the file is on YOUR machine and has no URL; it is
+      size-capped because the bytes ride inside the tool call.
+    - `media_path`: a path that already exists on the server box (e.g. from
+      download_media).
+    """
+    return wacli.send_file(
+        recipient,
+        media_path,
+        caption=caption,
+        content_base64=content_base64,
+        filename=filename,
+        media_url=media_url,
+    )
 
 
 @mcp.tool()
-def send_audio_message(recipient: str, media_path: str) -> dict[str, Any]:
-    """Send an audio file as a WhatsApp voice note (OGG/Opus recommended)."""
-    return wacli.send_file(recipient, media_path, ptt=True)
+def send_audio_message(
+    recipient: str,
+    media_path: str | None = None,
+    content_base64: str | None = None,
+    filename: str | None = None,
+    media_url: str | None = None,
+) -> dict[str, Any]:
+    """Send an audio file as a WhatsApp voice note (OGG/Opus recommended).
+
+    Same sources as send_file: `media_url` (preferred — server fetches the link),
+    `content_base64` (+ `filename`) for audio on your own machine, or `media_path`
+    for a file already on the server box.
+    """
+    return wacli.send_file(
+        recipient,
+        media_path,
+        ptt=True,
+        content_base64=content_base64,
+        filename=filename,
+        media_url=media_url,
+    )
 
 
 @mcp.tool()

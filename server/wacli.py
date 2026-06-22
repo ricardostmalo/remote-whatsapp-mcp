@@ -404,13 +404,163 @@ def send_text(
     return _run(args)
 
 
-def send_file(recipient: str, media_path: str, caption: str | None = None, ptt: bool = False) -> dict[str, Any]:
+# Cap on inline uploads. The bytes ride inside the MCP tool call (the only channel
+# an arbitrary remote client — ChatGPT, Claude, etc. — shares), so an LLM client has
+# to emit the whole base64 blob. Fine for documents; we refuse anything large to keep
+# a tool call from blowing up the client's context. WhatsApp's own doc cap is ~100 MB,
+# but that's not a sane size to push through a tool argument.
+MAX_INLINE_UPLOAD_BYTES = int(os.getenv("WACLI_MAX_INLINE_UPLOAD_BYTES", str(16 * 1024 * 1024)))
+
+# Cap on server-side URL downloads. Here the bytes never touch the LLM's context —
+# the server fetches them directly — so the ceiling is WhatsApp's own media limit
+# rather than a tool-call budget. Still bounded to avoid an unbounded fetch.
+MAX_URL_DOWNLOAD_BYTES = int(os.getenv("WACLI_MAX_URL_DOWNLOAD_BYTES", str(100 * 1024 * 1024)))
+URL_DOWNLOAD_TIMEOUT = float(os.getenv("WACLI_URL_DOWNLOAD_TIMEOUT", "120"))
+
+
+def send_file(
+    recipient: str,
+    media_path: str | None = None,
+    caption: str | None = None,
+    ptt: bool = False,
+    content_base64: str | None = None,
+    filename: str | None = None,
+    media_url: str | None = None,
+) -> dict[str, Any]:
+    """Send a file to a recipient.
+
+    Three input modes, in order of preference for a remote client:
+    - `media_url`: an http(s) link the *server* can reach (signed URL, Drive/Dropbox
+      share, S3, ...). The box downloads it and sends it; the bytes never pass through
+      the client or the LLM's context. Best for hosted clients (claude.ai, ChatGPT).
+    - `content_base64` (+ `filename`): the file's bytes, base64-encoded. Use only when
+      the file lives on the *client's* machine and isn't reachable by URL — the bytes
+      ride inside the tool call, so this is capped small. Decoded to a temp file, sent,
+      deleted.
+    - `media_path`: an absolute path that already exists *on the server box* (e.g.
+      something `download_media` wrote under STORE_DIR). No bytes cross the wire.
+    """
+    if media_url:
+        return _send_url_file(recipient, media_url, filename, caption=caption, ptt=ptt)
+    if content_base64:
+        return _send_inline_file(recipient, content_base64, filename, caption=caption, ptt=ptt)
+    if media_path:
+        return _send_path_file(recipient, media_path, caption=caption, ptt=ptt)
+    return {"success": False, "message": "Provide media_url, content_base64 (+ filename), or media_path."}
+
+
+def _send_path_file(recipient: str, media_path: str, caption: str | None, ptt: bool) -> dict[str, Any]:
     args = ["send", "file", "--to", recipient, "--file", media_path]
     if caption:
         args += ["--caption", caption]
     if ptt:
         args += ["--ptt"]
     return _run(args)
+
+
+def _send_inline_file(
+    recipient: str,
+    content_base64: str,
+    filename: str | None,
+    caption: str | None,
+    ptt: bool,
+) -> dict[str, Any]:
+    import base64
+    import binascii
+    import tempfile
+
+    try:
+        raw = base64.b64decode(content_base64, validate=True)
+    except (binascii.Error, ValueError):
+        return {"success": False, "message": "content_base64 is not valid base64."}
+    if not raw:
+        return {"success": False, "message": "content_base64 decoded to empty bytes."}
+    if len(raw) > MAX_INLINE_UPLOAD_BYTES:
+        mb = MAX_INLINE_UPLOAD_BYTES / (1024 * 1024)
+        return {
+            "success": False,
+            "message": f"file is {len(raw) / (1024 * 1024):.1f} MB; inline upload limit is {mb:.0f} MB. "
+            "For larger media, download it onto the box and send via media_path.",
+        }
+
+    # Preserve the caller's filename so WhatsApp shows a sensible document name and
+    # wacli can sniff the extension for the MIME type. Strip any path components.
+    name = os.path.basename((filename or "").strip()) or "file"
+    tmp_dir = tempfile.mkdtemp(prefix="wa_up_")
+    path = os.path.join(tmp_dir, name)
+    try:
+        with open(path, "wb") as f:
+            f.write(raw)
+        return _send_path_file(recipient, path, caption=caption, ptt=ptt)
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        try:
+            os.rmdir(tmp_dir)
+        except OSError:
+            pass
+
+
+def _send_url_file(
+    recipient: str,
+    media_url: str,
+    filename: str | None,
+    caption: str | None,
+    ptt: bool,
+) -> dict[str, Any]:
+    """Fetch a file from an http(s) URL on the server box, then send it via wacli.
+
+    Streams the download with a hard size cap so a hostile or huge URL can't fill the
+    disk, and cleans up the temp file regardless of outcome.
+    """
+    import tempfile
+    from urllib.parse import unquote, urlsplit
+
+    import httpx
+
+    url = (media_url or "").strip()
+    if urlsplit(url).scheme.lower() not in ("http", "https"):
+        return {"success": False, "message": "media_url must be an http(s) URL."}
+
+    # Filename for WhatsApp's document name + wacli's extension/MIME sniff: explicit
+    # arg wins, else the URL's last path segment, else a generic name. Strip any path.
+    name = os.path.basename((filename or "").strip())
+    if not name:
+        name = os.path.basename(unquote(urlsplit(url).path))
+    name = os.path.basename(name) or "file"
+
+    tmp_dir = tempfile.mkdtemp(prefix="wa_url_")
+    path = os.path.join(tmp_dir, name)
+    try:
+        with httpx.stream("GET", url, follow_redirects=True, timeout=URL_DOWNLOAD_TIMEOUT) as resp:
+            if resp.status_code != 200:
+                return {"success": False, "message": f"download failed: HTTP {resp.status_code} from media_url."}
+            total = 0
+            with open(path, "wb") as f:
+                for chunk in resp.iter_bytes():
+                    total += len(chunk)
+                    if total > MAX_URL_DOWNLOAD_BYTES:
+                        return {
+                            "success": False,
+                            "message": f"file exceeds the {MAX_URL_DOWNLOAD_BYTES / (1024 * 1024):.0f} MB download limit.",
+                        }
+                    f.write(chunk)
+            if total == 0:
+                return {"success": False, "message": "media_url returned an empty body."}
+        return _send_path_file(recipient, path, caption=caption, ptt=ptt)
+    except httpx.HTTPError as e:  # noqa: BLE001
+        return {"success": False, "message": f"download failed: {e}"}
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        try:
+            os.rmdir(tmp_dir)
+        except OSError:
+            pass
 
 
 def download_media(chat_jid: str, msg_id: str, output: str | None = None) -> dict[str, Any]:
