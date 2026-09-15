@@ -1,10 +1,10 @@
 # syntax=docker/dockerfile:1
 
 # ---- Stage 1: build the wacli engine (CGO + FTS5) ----
-FROM golang:1-bookworm AS wacli-build
+FROM golang:1.27-bookworm AS wacli-build
 ENV CGO_ENABLED=1 CGO_CFLAGS="-Wno-error=missing-braces"
-# Pin a tag in production instead of @latest for reproducible builds.
-ARG WACLI_VERSION=latest
+# Pinned wacli release; bump deliberately after testing pairing + sends.
+ARG WACLI_VERSION=v0.18.2
 RUN go install -tags "sqlite_fts5" github.com/openclaw/wacli/cmd/wacli@${WACLI_VERSION}
 
 # ---- Stage 2: runtime (wacli + Python MCP server) ----
@@ -17,7 +17,7 @@ RUN apt-get update \
 COPY --from=wacli-build /go/bin/wacli /usr/local/bin/wacli
 
 # Python MCP server deps
-RUN pip install --no-cache-dir "mcp[cli]>=1.27.1" "pyjwt[crypto]>=2.10.1" "uvicorn>=0.34.0" "httpx>=0.27.0"
+RUN pip install --no-cache-dir "mcp[cli]>=1.27.1,<2" "pyjwt[crypto]>=2.10.1" "uvicorn>=0.34.0" "httpx>=0.27.0"
 
 WORKDIR /app/server
 COPY server/ ./
